@@ -11,6 +11,7 @@ from sklearn.cluster import KMeans
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score, classification_report
 from gensim.models import Word2Vec
+from xgboost import XGBClassifier
 
 # PRIORITY IMPROVEMENTS:
 # Try variants of data cleaning and preprocessing (punctuation, contractions, lemmatization, stemming, number replacement, domain-specific stopword list, etc.)
@@ -132,18 +133,18 @@ def bag_of_words(reviews: list, vectorizer: CountVectorizer) -> tuple[list, list
     return bag_of_words, vocabulary
 
 
-def train_random_forest_classifier(training_inputs: list, target_values: pd.Series, folds: int=5) -> RandomForestClassifier:
+def train_and_evaluate_classifier(training_inputs: list, target_values: pd.Series, classifier_type: str, folds: int=5) -> RandomForestClassifier | XGBClassifier:
     """
-    Creates a Random Forest classifier and fits it to the training data and target values. Uses stratified K-fold cross-validation to evaluate the model performance.
+    Creates a classifier and fits it to the training data and target values. Uses stratified K-fold cross-validation to evaluate the model performance.
 
     Parameters:
-        model_type (str): The type of model being trained.
         training_inputs (list): The training data inputs, which can be a bag of words representation or feature vectors.
         target_values (pd.Series): The labels corresponding to the training inputs.
+        classifier_type (str): The type of classifier to be used.
         folds (int): The number of folds for cross-validation. Default is 5.
 
     Returns:
-        RandomForestClassifier: The trained Random Forest classifier.
+        RandomForestClassifier | XGBClassifier: The trained classifier.
     """
 
     # Create a StratifiedKFold instance for cross-validation
@@ -158,14 +159,19 @@ def train_random_forest_classifier(training_inputs: list, target_values: pd.Seri
         X_train, X_val = training_inputs[train_index], training_inputs[val_index]
         y_train, y_val = target_values[train_index], target_values[val_index]
 
-        # Create a Random Forest classifier with 100 trees
-        forest = RandomForestClassifier(n_estimators=100, random_state=42)
+        # Check the classifier type and create the appropriate classifier
+        if classifier_type == "random_forest":
+            # Create a Random Forest classifier with 100 trees
+            classifier = RandomForestClassifier(n_estimators=100, random_state=42)
+        elif classifier_type == "xgboost":
+            # Create an XGBoost classifier with default parameters
+            classifier = XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=5, use_label_encoder=False, eval_metrics="logloss", verbosity=0, random_state=42)
 
-        # Fit the Random Forest classifier to the training data and target values
-        forest = forest.fit(X_train, y_train)
+        # Fit the classifier to the training data and target values
+        classifier = classifier.fit(X_train, y_train)
 
         # Predict the target values for the validation set
-        y_pred = forest.predict(X_val)
+        y_pred = classifier.predict(X_val)
 
         # Calculate the accuracy score for the current fold
         accuracy = accuracy_score(y_val, y_pred)
@@ -177,11 +183,16 @@ def train_random_forest_classifier(training_inputs: list, target_values: pd.Seri
     
     print(f"Average Accuracy across {folds} folds: {np.mean(accuracy_scores):.4f}")
 
-    # Predict the target values for the entire training set
-    final_model = RandomForestClassifier(n_estimators=100, random_state=42)
+    # Check the classifier type and create the appropriate classifier for final training
+    if classifier_type == "random_forest":
+        # Predict the target values for the entire training set using the Random Forest classifier
+        final_model = RandomForestClassifier(n_estimators=100, random_state=42)
+    elif classifier_type == "xgboost":
+        # Predict the target values for the entire training set using the XGBoost classifier
+        final_model = XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=5, use_label_encoder=False, eval_metrics="logloss", verbosity=0, random_state=42)
     final_model.fit(training_inputs, target_values)
 
-    # Return the trained Random Forest classifier
+    # Return the trained classifier
     return final_model
 
 
@@ -339,6 +350,9 @@ if __name__ == "__main__":
     # Determine the model type ["bag_of_words", "word2vec"]
     model_type = "word2vec"
 
+    # Determine the classifier type ["random_forest", "xgboost"]
+    classifier_type = "xgboost"
+
     # Clean the training reviews and test reviews based on the model type
     if model_type == "bag_of_words":
         print("Cleaning training reviews for bag of words model...")
@@ -366,15 +380,24 @@ if __name__ == "__main__":
         bag_of_words_representation, vocabulary = bag_of_words(cleaned_training_reviews, vectorizer)
         print("Finished creating bag of words representation for training reviews.")
 
-        # Train the Random Forest classifier using the bag of words representation and the training labels
-        print("Training Random Forest classifier...")
-        random_forest_classifier = train_random_forest_classifier(bag_of_words_representation, training_data["sentiment"])
-        print("Finished training Random Forest classifier.")
+        # Create input samples for the cleaned test reviews
+        input_samples = vectorizer.transform(cleaned_test_reviews).toarray()
+
+        # Check the classifier type and train the appropriate classifier
+        if classifier_type == "random_forest":
+            # Train the Random Forest classifier using the bag of words representation and the training labels
+            print("Training Random Forest classifier...")
+            classifier = train_and_evaluate_classifier(bag_of_words_representation, training_data["sentiment"], classifier_type)
+            print("Finished training Random Forest classifier.")
+        elif classifier_type == "xgboost":
+            # Train the XGBoost classifier using the bag of words representation and the training labels
+            print("Training XGBoost classifier...")
+            classifier = train_and_evaluate_classifier(bag_of_words_representation, training_data["sentiment"], classifier_type)
+            print("Finished training XGBoost classifier.")
 
         # Predict the sentiment of the cleaned test reviews
         print("Predicting sentiment for test reviews...")
-        input_samples = vectorizer.transform(cleaned_test_reviews).toarray()
-        results = random_forest_classifier.predict(input_samples)
+        results = classifier.predict(input_samples)
         print("Finished predicting sentiment for test reviews.")
     elif model_type == "word2vec":
         # Set values for Word2Vec parameters
@@ -421,11 +444,22 @@ if __name__ == "__main__":
             cleaned_test_reviews = clean_reviews(test_data["review"], model_type, stopwords, True)
             test_feature_vectors = get_average_feature_vectors(cleaned_test_reviews, word2vec_model, idf_dict, num_features)
 
-            # Train the Random Forest classifier using the average feature vectors and the training labels
-            random_forest_classifier = train_random_forest_classifier(training_feature_vectors, training_data["sentiment"])
+            # Check the classifier type and train the appropriate classifier
+            if classifier_type == "random_forest":
+                # Train the Random Forest classifier using the average feature vectors and the training labels
+                print("Training Random Forest classifier...")
+                classifier = train_and_evaluate_classifier(training_feature_vectors, training_data["sentiment"], classifier_type)
+                print("Finished training Random Forest classifier.")
+            elif classifier_type == "xgboost":
+                # Train the XGBoost classifier using the average feature vectors and the training labels
+                print("Training XGBoost classifier...")
+                classifier = train_and_evaluate_classifier(training_feature_vectors, training_data["sentiment"], classifier_type)
+                print("Finished training XGBoost classifier.")
 
             # Predict the sentiment of the cleaned test reviews
-            results = random_forest_classifier.predict(test_feature_vectors)
+            print("Predicting sentiment for test reviews...")
+            results = classifier.predict(test_feature_vectors)
+            print("Finished predicting sentiment for test reviews.")
         elif method == "cluster":
             # Set the number of clusters for KMeans
             num_clusters = word2vec_model.wv.vectors.shape[0] // 5
@@ -442,14 +476,21 @@ if __name__ == "__main__":
             test_bag_of_centroids_representation = bag_of_centroids(cleaned_test_reviews, cluster_centers)
             print("Finished creating bag of centroids representation for test reviews.")
 
-            # Train the Random Forest classifier using the bag of centroids representation and the training labels
-            print("Training Random Forest classifier with bag of centroids representation...")
-            random_forest_classifier = train_random_forest_classifier(np.array(training_bag_of_centroids_representation), training_data["sentiment"])
-            print("Finished training Random Forest classifier with bag of centroids representation.")
+            # Check the classifier type and train the appropriate classifier
+            if classifier_type == "random_forest":
+                # Train the Random Forest classifier using the bag of centroids representation and the training labels
+                print("Training Random Forest classifier...")
+                classifier = train_and_evaluate_classifier(np.array(training_bag_of_centroids_representation), training_data["sentiment"], classifier_type)
+                print("Finished training Random Forest classifier.")
+            elif classifier_type == "xgboost":
+                # Train the XGBoost classifier using the bag of centroids representation and the training labels
+                print("Training XGBoost classifier...")
+                classifier = train_and_evaluate_classifier(np.array(training_bag_of_centroids_representation), training_data["sentiment"], classifier_type)
+                print("Finished training XGBoost classifier.")
 
             # Predict the sentiment of the cleaned test reviews
             print("Predicting sentiment for test reviews using bag of centroids representation...")
-            results = random_forest_classifier.predict(np.array(test_bag_of_centroids_representation))
+            results = classifier.predict(np.array(test_bag_of_centroids_representation))
             print("Finished predicting sentiment for test reviews using bag of centroids representation.")
 
     # Save the predicted sentiment results to a CSV file
