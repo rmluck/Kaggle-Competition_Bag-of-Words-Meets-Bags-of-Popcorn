@@ -6,7 +6,7 @@
 
 ## 📖 Overview
 
-Natural language processing pipeline developed to classify IMDB movie reviews as positive or negative based on review sentiment analysis. Built for the Bag of Words Meets Bags of Popcorn Kaggle competition. Implemented text preprocessing, Google's Word2Vec embeddings, and deep learning classifiers such as Random Forest and XGBoost to achieve 86% cross-validated accuracy.
+Natural language processing pipeline developed to classify IMDB movie reviews as positive or negative based on review sentiment analysis. Built for the "Bag of Words Meets Bags of Popcorn" Kaggle competition. Implemented text preprocessing, Google's Word2Vec embeddings, and deep learning classifiers such as Random Forest and XGBoost to achieve 86% cross-validated accuracy.
 
 **Dataset**: Used the competition-provided IMDB movie review dataset containing 100,000 total multi-paragraph reviews (25,000 for labeled training, 50,000 for unlabeled training, and 25,000 for testing). Reviews are raw text with binary sentiment labels (IMDB rating < 5 is equivalent to sentiment score of 0, IMDB rating >= 7 is equivalent to sentiment score of 1). See the [competition page](https://www.kaggle.com/competitions/word2vec-nlp-tutorial) for full competition and dataset details.
 
