@@ -9,7 +9,7 @@ from nltk.tokenize import sent_tokenize
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import KMeans
-from sklearn.model_selection import StratifiedKFold, GridSearchCV
+from sklearn.model_selection import StratifiedKFold, GridSearchCV, train_test_split
 from sklearn.metrics import accuracy_score, classification_report
 from gensim.models import Word2Vec
 from xgboost import XGBClassifier
@@ -33,7 +33,8 @@ def clean_review(raw_review: str, stopwords: set, remove_stopwords: bool=True, l
     Parameters:
         raw_review (str): The raw review text to be cleaned.
         stopwords (set): A set of stopwords to be removed from the review.
-        remove_stopwords (bool): Whether to remove stopwords from the review. Default is False.
+        remove_stopwords (bool): Whether to remove stopwords from the review. Default is True.
+        lemmatize (bool): Whether to lemmatize the words in the review. Default is True.
 
     Returns:
         list[str]: A list of cleaned words from the review.
@@ -86,7 +87,8 @@ def clean_reviews(raw_reviews: pd.Series, model_type: str, stopwords: set,remove
         raw_reviews (pd.Series): A pandas Series containing raw review texts.
         model_type (str): The type of model to be used.
         stopwords (set): A set of stopwords to be removed from the reviews.
-        remove_stopwords (bool): Whether to remove stopwords from the reviews. Default is False.
+        remove_stopwords (bool): Whether to remove stopwords from the reviews. Default is True.
+        lemmatize (bool): Whether to lemmatize the words in the reviews. Default is True.
 
     Returns:
         list[list[str]]: A list of lists, where each inner list contains cleaned words from a review.
@@ -170,7 +172,7 @@ def train_and_evaluate_classifier(training_inputs: list, target_values: pd.Serie
             classifier = RandomForestClassifier(n_estimators=100, random_state=42)
         elif classifier_type == "xgboost":
             # Create an XGBoost classifier with default parameters
-            classifier = XGBClassifier(n_estimators=200, learning_rate=0.1, max_depth=7, subsample=1.0, colsample_bytree=1.0, use_label_encoder=False, eval_metrics="logloss", verbosity=0, random_state=42)
+            classifier = XGBClassifier(n_estimators=200, learning_rate=0.1, max_depth=7, subsample=1.0, colsample_bytree=1.0, use_label_encoder=False, eval_metric="logloss", verbosity=0, random_state=42)
 
         # Fit the classifier to the training data and target values
         classifier = classifier.fit(X_train, y_train)
@@ -188,14 +190,17 @@ def train_and_evaluate_classifier(training_inputs: list, target_values: pd.Serie
     
     print(f"Average Accuracy across {folds} folds: {np.mean(accuracy_scores):.4f}")
 
+    X_train_final, X_val_final, y_train_final, y_val_final = train_test_split(training_inputs, target_values, test_size=0.1, stratify=target_values, random_state=42)
+
     # Check the classifier type and create the appropriate classifier for final training
     if classifier_type == "random_forest":
         # Predict the target values for the entire training set using the Random Forest classifier
         final_model = RandomForestClassifier(n_estimators=100, random_state=42)
+        final_model.fit(X_train_final, y_train_final)
     elif classifier_type == "xgboost":
         # Predict the target values for the entire training set using the XGBoost classifier
-        final_model = XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=5, use_label_encoder=False, eval_metrics="logloss", verbosity=0, random_state=42)
-    final_model.fit(training_inputs, target_values)
+        final_model = XGBClassifier(n_estimators=200, learning_rate=0.1, max_depth=7, subsample=1.0, colsample_bytree=1.0, use_label_encoder=False, eval_metric="logloss", early_stopping_rounds=10, verbosity=0, random_state=42)
+        final_model.fit(X_train_final, y_train_final, eval_set=[(X_val_final, y_val_final)], verbose=True)
 
     # parameter_grid = {
     #     "n_estimators": [100, 200], # 200
