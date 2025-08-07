@@ -14,17 +14,6 @@ from sklearn.metrics import accuracy_score, classification_report
 from gensim.models import Word2Vec
 from xgboost import XGBClassifier
 
-# PRIORITY IMPROVEMENTS:
-# Try variants of data cleaning and preprocessing (punctuation, contractions, lemmatization, stemming, number replacement, domain-specific stopword list, etc.)
-# Hyperparameter tuning (vector_size 100-300, min_count 10-100, window 5-15, epochs 10-20, sg 0/1, samplee 1e-5 to 1e-3, etc.)
-# Use stratified K-fold cross validation to evaluate the model performance. Use confusion matrices and classification reports to analyze the model performance. Consider precision/recall.
-# 1. Train classifier using pretrained embeddings
-# 2. Instead of Random Forest, use boosting methods which outperform on high-dimensional features like vector averages or bag-of-centroids. Try XGBoost or LightGBM.
-# 3. Instead of simple mean of word vectors, use TF-IDF weighted mean. Then during vector averaging, multiply each word vector by its TF-IDF weight.
-# 4. Use gensim.models.doc2vec and TaggedDocument to train a Doc2Vec model. Then use document vectors for classification.
-# 5. Use transformers from Hugging Face and fine-tune a BERT-based model on the dataset.
-# 6. Try ensemble methods.
-
 
 def clean_review(raw_review: str, stopwords: set, remove_stopwords: bool=True, lemmatize: bool=True) -> list[str]:
     """
