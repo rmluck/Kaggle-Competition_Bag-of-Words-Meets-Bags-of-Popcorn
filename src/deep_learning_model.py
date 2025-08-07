@@ -5,7 +5,7 @@ import nltk
 from bs4 import BeautifulSoup
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import KMeans
 from sklearn.model_selection import StratifiedKFold
@@ -185,13 +185,14 @@ def train_random_forest_classifier(training_inputs: list, target_values: pd.Seri
     return final_model
 
 
-def make_feature_vector(words: list, model: Word2Vec, num_features: int) -> np.ndarray:
+def make_feature_vector(words: list, model: Word2Vec, idf_dict: dict,  num_features: int) -> np.ndarray:
     """
     Calculates the average feature vector for a list of words using a Word2Vec model.
     
     Parameters:
         words (list): The list of words to be averaged.
         model (Word2Vec): The trained Word2Vec model.
+        idf_dict (dict): The dictionary containing the IDF weights for each word.
         num_features (int): The dimensionality of the word vectors.
 
     Returns:
@@ -201,31 +202,32 @@ def make_feature_vector(words: list, model: Word2Vec, num_features: int) -> np.n
     # Initialize an empty feature vector of zeros
     feature_vector = np.zeros((num_features,), dtype="float32")
 
-    # Build set that contains the words in the model's vocabulary
-    index_to_word_set = set(model.wv.index_to_key)
+    # Initialize a variable to keep track of the sum of weights
+    weight_sum = 0.0
 
     # Iterate through the words and add their vectors to the feature vector
-    num_words = 0
     for word in words:
-        if word in index_to_word_set:
-            num_words += 1
-            feature_vector = np.add(feature_vector, model.wv[word])
+        if word in model.wv and word in idf_dict:
+            tfidf_weight = idf_dict[word]
+            feature_vector = np.add(feature_vector, model.wv[word] * tfidf_weight)
+            weight_sum += tfidf_weight
 
-    # Divide the result by the number of words to get the average
-    if num_words > 0:
-        feature_vector = np.divide(feature_vector, num_words)
+    # Normalize the feature vector by the sum of weights
+    if weight_sum > 0:
+        feature_vector = np.divide(feature_vector, weight_sum)
 
     # Return the average feature vector
     return feature_vector
 
 
-def get_average_feature_vectors(reviews: list, model: Word2Vec, num_features: int) -> np.ndarray:
+def get_average_feature_vectors(reviews: list, model: Word2Vec, idf_dict: dict, num_features: int) -> np.ndarray:
     """
     Calculates the average feature vector for each review.
     
     Parameters:
         reviews (list): The list of reviews, where each review is a list of words.
         model (Word2Vec): The trained Word2Vec model.
+        idf_dict (dict): The dictionary containing the IDF weights for each word.
         num_features (int): The dimensionality of the word vectors.
 
     Returns:
@@ -239,7 +241,7 @@ def get_average_feature_vectors(reviews: list, model: Word2Vec, num_features: in
     for review in reviews:
         # Check if the review is not empty before calculating the feature vector
         if review:
-            feature_vector = make_feature_vector(review, model, num_features)
+            feature_vector = make_feature_vector(review, model, idf_dict, num_features)
             feature_vectors.append(feature_vector)
 
     # Convert the list of feature vectors to a NumPy array
@@ -399,13 +401,25 @@ if __name__ == "__main__":
         print("Finished cleaning labeled training reviews.")
 
         # Determine the vector operation to use to combine word vectors ["vector_average", "cluster"]
-        method = "cluster"
+        method = "vector_average"
         if method == "vector_average":
-            training_feature_vectors = get_average_feature_vectors(cleaned_training_reviews, word2vec_model, num_features)
+            # Convert training reviews to strings for TF-IDF fitting
+            training_review_strings = [" ".join(review) for review in cleaned_training_reviews]
+
+            # Fit TF-IDF vectorizer to the cleaned training review strings
+            print("Fitting TF-IDF vectorizer to training reviews...")
+            tfidf_vectorizer = TfidfVectorizer()
+            tfidf_vectorizer.fit(training_review_strings)
+
+            # Create IDF dictionary
+            idf_dict = dict(zip(tfidf_vectorizer.get_feature_names_out(), tfidf_vectorizer.idf_))
+
+            # Get the average feature vectors for the cleaned training reviews
+            training_feature_vectors = get_average_feature_vectors(cleaned_training_reviews, word2vec_model, idf_dict, num_features)
 
             # Get the average feature vectors for the cleaned test reviews
             cleaned_test_reviews = clean_reviews(test_data["review"], model_type, stopwords, True)
-            test_feature_vectors = get_average_feature_vectors(cleaned_test_reviews, word2vec_model, num_features)
+            test_feature_vectors = get_average_feature_vectors(cleaned_test_reviews, word2vec_model, idf_dict, num_features)
 
             # Train the Random Forest classifier using the average feature vectors and the training labels
             random_forest_classifier = train_random_forest_classifier(training_feature_vectors, training_data["sentiment"])
