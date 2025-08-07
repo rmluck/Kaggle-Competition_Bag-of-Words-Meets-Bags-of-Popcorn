@@ -4,11 +4,12 @@ import re
 import nltk
 from bs4 import BeautifulSoup
 from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import sent_tokenize
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import KMeans
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, GridSearchCV
 from sklearn.metrics import accuracy_score, classification_report
 from gensim.models import Word2Vec
 from xgboost import XGBClassifier
@@ -25,7 +26,7 @@ from xgboost import XGBClassifier
 # 6. Try ensemble methods.
 
 
-def clean_review(raw_review: str, stopwords: set, remove_stopwords: bool=False) -> list[str]:
+def clean_review(raw_review: str, stopwords: set, remove_stopwords: bool=True, lemmatize: bool=True) -> list[str]:
     """
     Cleans the raw review text by removing HTML tags and markup, punctuation, numbers, and stopwords.
 
@@ -39,7 +40,7 @@ def clean_review(raw_review: str, stopwords: set, remove_stopwords: bool=False) 
     """
 
     # Remove HTML tags and markup from review
-    review_text = BeautifulSoup(raw_review).get_text()
+    review_text = BeautifulSoup(raw_review, "html.parser").get_text()
 
     # Remove punctuation and numbers from review
     review_text = re.sub("[^a-zA-Z]", " ", review_text)
@@ -50,6 +51,10 @@ def clean_review(raw_review: str, stopwords: set, remove_stopwords: bool=False) 
     # Remove stopwords from the list of words
     if remove_stopwords:
         words = [word for word in words if word not in stopwords]
+
+    # Lemmatize the words in the list
+    if lemmatize:
+        words = [lemmatizer.lemmatize(word) for word in words]
 
     # Return the cleaned list of words
     return words
@@ -73,7 +78,7 @@ def split_review_into_sentences(review: str) -> list:
     return sentences
 
 
-def clean_reviews(raw_reviews: pd.Series, model_type: str, stopwords: set,remove_stopwords: bool=False) -> list[str] | list[list[str]]:
+def clean_reviews(raw_reviews: pd.Series, model_type: str, stopwords: set,remove_stopwords: bool=True, lemmatize: bool=True) -> list[str] | list[list[str]]:
     """
     Cleans a series of raw reviews.
 
@@ -93,7 +98,7 @@ def clean_reviews(raw_reviews: pd.Series, model_type: str, stopwords: set,remove
         # Clean reviews based on the model type
         if model_type == "bag_of_words":
             # Clean the entire review as a single string
-            cleaned_reviews.append(clean_review(review, stopwords, remove_stopwords=remove_stopwords))
+            cleaned_reviews.append(clean_review(review, stopwords, remove_stopwords=remove_stopwords, lemmatize=lemmatize))
         elif model_type == "word2vec":
             # Split the review into sentences and clean each sentence
             sentences = split_review_into_sentences(review)
@@ -102,7 +107,7 @@ def clean_reviews(raw_reviews: pd.Series, model_type: str, stopwords: set,remove
             for sentence in sentences:
                 # Check if the sentence is not empty before cleaning
                 if sentence.strip():
-                    sentences = clean_review(sentence, stopwords, remove_stopwords=remove_stopwords)
+                    sentences = clean_review(sentence, stopwords, remove_stopwords=remove_stopwords, lemmatize=lemmatize)
                     cleaned_review_words.extend(sentences)
             cleaned_reviews.append(cleaned_review_words)
 
@@ -165,7 +170,7 @@ def train_and_evaluate_classifier(training_inputs: list, target_values: pd.Serie
             classifier = RandomForestClassifier(n_estimators=100, random_state=42)
         elif classifier_type == "xgboost":
             # Create an XGBoost classifier with default parameters
-            classifier = XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=5, use_label_encoder=False, eval_metrics="logloss", verbosity=0, random_state=42)
+            classifier = XGBClassifier(n_estimators=200, learning_rate=0.1, max_depth=7, subsample=1.0, colsample_bytree=1.0, use_label_encoder=False, eval_metrics="logloss", verbosity=0, random_state=42)
 
         # Fit the classifier to the training data and target values
         classifier = classifier.fit(X_train, y_train)
@@ -191,6 +196,32 @@ def train_and_evaluate_classifier(training_inputs: list, target_values: pd.Serie
         # Predict the target values for the entire training set using the XGBoost classifier
         final_model = XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=5, use_label_encoder=False, eval_metrics="logloss", verbosity=0, random_state=42)
     final_model.fit(training_inputs, target_values)
+
+    # parameter_grid = {
+    #     "n_estimators": [100, 200], # 200
+    #     "max_depth": [3, 5, 7], # 7
+    #     "learning_rate": [0.01, 0.1], # 0.1
+    #     "subsample": [0.8, 1.0], # 1.0
+    #     "colsample_bytree": [0.8, 1.0], # 1.0
+    # }
+
+    # clf = XGBClassifier(use_label_encoder=False, eval_metric="logloss", verbosity=0, random_state=42)
+
+    # grid = GridSearchCV(
+    #     estimator=clf,
+    #     param_grid=parameter_grid,
+    #     scoring="accuracy",
+    #     cv=StratifiedKFold(n_splits=folds, shuffle=True, random_state=42),
+    #     verbose=2,
+    #     n_jobs=-1
+    # )
+
+    # grid.fit(training_inputs, target_values)
+
+    # print("Best parameters found: ", grid.best_params_)
+    # print("Best cross-validation score: ", grid.best_score_)
+
+    # final_model = grid.best_estimator_
 
     # Return the trained classifier
     return final_model
@@ -341,11 +372,15 @@ if __name__ == "__main__":
     test_data = pd.read_csv("data/test_data.tsv", header=0, delimiter="\t", quoting=3)
     print("Finished importing test data.")
 
-    # Download the NLTK stopwords and punkt tokenizer
-    print("Downloading NLTK stopwords and punkt tokenizer...")
+    # Download the NLTK stopwords, punkt tokenizer, and WordNet lemmatizer
+    print("Downloading NLTK stopwords, punkt tokenizer, and WordNet lemmatizer...")
     nltk.download("stopwords")
     nltk.download("punkt_tab")
+    nltk.download("wordnet")
+    nltk.download("omw-1.4")
     stopwords = set(stopwords.words("english"))
+    lemmatizer = WordNetLemmatizer()
+    print("Finished downloading NLTK stopwords, punkt tokenizer, and WordNet lemmatizer.")
 
     # Determine the model type ["bag_of_words", "word2vec"]
     model_type = "word2vec"
